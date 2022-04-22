@@ -1,0 +1,58 @@
+#include<stdio.h>
+#include<math.h>
+#include<stdlib.h>
+
+#define SIZE 512
+#define MAX_PIXEL 255
+
+unsigned char inimg1[SIZE][SIZE];
+unsigned char inimg2[SIZE][SIZE];
+
+int main(void) {
+	double MSE = 0;
+	double buf_M = 0;
+	int i, j, buf;
+	char arr[40];
+	printf("O_FILE: ");
+	scanf("%s", arr);
+	//원본 파일을 입력
+	FILE* infile1 = fopen((const char*)arr, "rb");
+	//파일을 읽기모드(binary file)로 불러옴 
+	if (!infile1) {
+		printf("File open error1!!\n");
+		return 1;
+	}
+	//파일을 불러오지 못하면 프로그램 종료
+	fread(inimg1, sizeof(char), SIZE * SIZE, infile1);
+	//파일 포인터를 활용해 파일내 데이터를 inimg1에 write함
+	fclose(infile1);
+	//파일 close함
+	printf("V_FILE: ");
+	scanf("%s", arr);
+	//복구한 파일 입력
+	FILE* infile2 = fopen((const char*)arr, "rb");
+	if (!infile2) {
+		printf("File open error2!!\n");
+		return 1;
+	}
+	//파일을 불러들이지 못했을 경우 프로그램 종료
+	fread(inimg2, sizeof(char), SIZE * SIZE, infile2);
+	//파일 포인터를 활용해 파일내 데이터를 inim2로 write함
+	fclose(infile2);
+	//파일 close함
+	for (i = 0; i < SIZE; i++) { //MSE=P_noise=sum((원본픽셀값-복구본픽셀값)^2)/SIZE*SIZE 
+		for (j = 0; j < SIZE; j++) {
+			buf = inimg1[i][j] - inimg2[i][j];
+			MSE += buf * buf;
+		}
+	}//MSE=sum((원본픽셀값-복구본픽셀값)^2)현재 for문은 이 작업을 함
+
+	MSE /= SIZE * SIZE;
+	//나누기 SZIE*SIZE를 함으로 써 아래 수식값이 들어있게 됨
+	//MSE=sum((원본픽셀값-복구본픽셀값)^2)/SIZE*SIZE인 값이 됨
+	printf("%f\n", MSE); //PSNR=10*log10(255*255/MSE)라는 수식으로 정의됨
+	printf("%f\n", 10 * log10(MAX_PIXEL * MAX_PIXEL/ MSE)); 
+	//MAX_PIXEL은 255로 매크로로 전처리 되어있음
+	//MSE와 PSNR을 출력
+	return 0;
+}
