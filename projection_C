@@ -1,0 +1,51 @@
+#include <stdio.h>
+#include <math.h>
+
+#define PI 3.14159265358979
+#define CEN 255.5
+#define SIZE 512
+#define check(s) (((s) > -1) & ((s) < 512))
+#define uint8 unsigned char
+#define uint32 unsigned int
+
+uint8 InImg[SIZE][SIZE];
+uint32 OutImg[SIZE][180] = { 0, };
+
+int main(void)
+{
+	int i, j, k, x, y;
+	double si, co;
+	uint32 total;
+	char arr[40];
+	FILE* infile;
+	FILE* outfile;
+	scanf("%s", arr);
+	infile = fopen((const char*)arr, "rb");
+	if (!infile) {
+		printf("File open error!!\n");
+		return 1;
+	}
+	fread(InImg, sizeof(uint8), SIZE * SIZE, infile);
+	fclose(infile);
+	for (k = 0; k < 180; k++) {
+		si = sin(PI * k / 180);
+		co = cos(PI * k / 180);
+		for (i = 0; i < SIZE; i++) {
+			total = 0;
+			for (j = 0; j < SIZE; j++) {
+				x = round(co * (i - CEN) - si * (j - CEN) + CEN);
+				y = round(si * (i - CEN) + co * (j - CEN) + CEN);
+				//[cos i, -sin i][x]
+				//[sin i,  cos i][y] matrix연산(좌표 변환)
+				if(check(x) & check(y))
+					total += InImg[y][x];
+			}
+			OutImg[i][k] = total;
+		}
+	}
+	outfile = fopen("Sinogram.raw", "wb");
+	fwrite(OutImg, sizeof(int), SIZE * 180, outfile);
+	fclose(outfile);
+	//file생성 (bin_file) projection된 자료
+	return 0;
+}
