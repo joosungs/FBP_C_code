@@ -1,0 +1,179 @@
+#include<stdio.h>
+#include<math.h>
+#include<stdlib.h>
+
+#define SIZE_2 1024
+#define SIZE 512
+#define PI 3.141592653589793
+#define CEN 511.5
+#define check(s) (((s) > -1) & ((s) < 512))
+
+typedef struct complex {
+	double re, im;
+}COMPLEX;
+
+void Ram_Lak_filtering(void);
+unsigned bitreverse(const unsigned n, const unsigned k);
+void permutate(COMPLEX* data);
+void FFT(COMPLEX* data, unsigned char ch);
+
+unsigned int sino[SIZE_2][180] = { 0, };
+double sino_f[SIZE_2][180] = { 0, };
+unsigned char Img[SIZE][SIZE] = { 0, };
+
+int main(void) {
+	int i, j, k, x, y;
+	double** buf;
+	double si, co, max;
+	char arr[40];
+	buf = (double**)malloc(SIZE * sizeof(double*));
+	for (i = 0; i < SIZE; i++) {
+		*(buf + i) = (double*)malloc(SIZE * sizeof(double));
+		for (j = 0; j < SIZE; j++) {
+			*(*(buf + i) + j) = 0;
+		}
+	}
+	//동적 할당
+	scanf("%s", arr);
+	FILE* infile = fopen((const char*)arr, "rb");
+	if (!infile) {
+		printf("File open error!!\n");
+		return 1;
+	}
+	//파일을 읽기 읽기 모드로 열음
+	fread(sino + 256, sizeof(int), SIZE * 180, infile);
+	//sinogram에 싸이즈를 2배로 증가 시켜서 +256부터 받음
+	//sinogram에 싸이즈를 2배 증가해 fft했을 때 퀄리티를 높임
+	fclose(infile);
+	//파일 close
+	Ram_Lak_filtering(); //필터링 진행
+	for (k = 0; k < 180; k++) {
+		si = sin(PI * k / 180);
+		co = cos(PI * k / 180);
+		for (i = 0; i < SIZE_2; i++) {
+			for (j = -128; j < SIZE_2 + 128; j++) {
+				x = round(co * (i - CEN) - si * (j - CEN) + CEN);
+				y = round(si * (i - CEN) + co * (j - CEN) + CEN);
+				//[cos i, -sin i]
+				//[sin i,  cos i] 좌표변환 매트릭스 적용
+				x -= 256;
+				y -= 256;
+				//사이즈가 다르것으로인한 차이 개선
+				if (check(x) & check(y)) //이미지 범위를 넘는 좌표를 제외시킴
+					buf[y][x] += sino_f[i][k];
+			}
+		}
+	}
+	max = buf[0][0];
+	for (i = 0; i < SIZE; i++) {
+		for (j = 0; j < SIZE; j++) {
+			buf[i][j] = (buf[i][j] > 0) * buf[i][j];
+			//음수 성분 제거
+			max = (max < buf[i][j]) * buf[i][j] + (max >= buf[i][j]) * max;
+			//최대 값계산
+		}
+	}
+	
+	for (i = 0; i < SIZE; i++) {
+		for (j = 0; j < SIZE; j++) {
+			Img[i][j] = buf[i][j] / max * 255; //이미지 스트래칭
+		}
+		free(*(buf + i));
+	}
+	free(buf);
+	//CT_result.raw라는 파일에 img값 write함
+	FILE* outfile = fopen("CT_result.raw", "wb");
+	fwrite(Img, sizeof(char), SIZE * SIZE, outfile);
+	fclose(outfile);
+	return 0;
+}
+
+void Ram_Lak_filtering(void) {
+	COMPLEX buffer[SIZE_2];
+	int i, j;
+	double* window = (double*)malloc(sizeof(double) * SIZE_2);
+	for (i = 0; i < SIZE_2; i++)
+		window[i] = 0.5 + 0.5 * cos(PI * i / SIZE);
+	//hanning window
+	for (i = 0; i < 180; i++) {
+		//연산을 위해 buffer에 sinogram담음
+		for (j = 0; j < SIZE_2; j++) {
+			buffer[j].re = sino[j][i];
+			buffer[j].im = 0;
+		}
+		FFT(buffer, 1);//FFT적용
+		//Ram_Lak_filter주파수영역에서 적용 + hanning window 도 적용
+		for (j = 0; j < SIZE; j++) {
+			buffer[j].re *= (double)j * window[j];
+			buffer[j].im *= (double)j * window[j];
+		}
+		while (j < SIZE_2) {
+			buffer[j].re *= (SIZE_2 - (double)j) * window[j];
+			buffer[j].im *= (SIZE_2 - (double)j) * window[j];
+			j++;
+		}
+		FFT(buffer, 0);//IFFT적용
+		for (j = 0; j < SIZE_2; j++) {
+			sino_f[j][i] = buffer[j].re / SIZE_2;
+		}
+	}
+	free(window);
+}
+
+unsigned bitreverse(const unsigned n, const unsigned k) {//죄우로 반전되 bit계산
+	unsigned r, i;
+	for (r = 0, i = 0; i < k; ++i)
+		r |= ((n >> i) & 1) << (k - i - 1);
+	return r;
+}
+
+
+
+void permutate(COMPLEX* data) { //FFT를 적용하기위한 index배열을 위한 함수
+	int check;
+	double temp;
+	for (int i = 0; i < SIZE_2; i++) {
+		check = bitreverse(i, 10);
+		if (i < check) {
+			temp = data[i].re;
+			data[i].re = data[check].re;
+			data[check].re = temp;
+			temp = data[i].im;
+			data[i].im = data[check].im;
+			data[check].im = temp;
+		}
+	}
+}
+
+void FFT(COMPLEX* data,unsigned char ch) { //FFT(FAST FOURIER TRANSFORM)
+	//버터플아이 알고리즘과 하다마드 변환을 통해 구현함
+	int N = SIZE_2, check = SIZE_2 / 2;
+	int i, j;
+	int k = 1;
+	double temp, si, co;
+	//if문은 사용하면 분기 명령어가 일어나 연산자를 활용해 만듬
+	ch = (ch == 1) + (ch > 1);
+	//만약 0과 1이외 값을 받으면 ch를 1로 변환 하는 작업
+	permutate(data); //index값 재배열(여기서는 array값을 변경해 재배열 한것과 같은 결과가 나오게 함)
+	while (check) {
+		for (j = 0; j < k; j++) {
+			si = (1 - 2 * ch) * sin(PI * j / k);
+			co = cos(PI * j / k);
+			for (i = 0; i < N; i += 2 * k) {
+				//버터플라이 알고리즘
+				//실수 영역과 허수 영역을 서로 구분지어 계산
+				temp = data[i + j + k].re;
+				data[i + j + k].re = data[i + j + k].re * co - data[i + j + k].im * si;
+				data[i + j + k].im = temp * si + data[i + j + k].im * co;
+				temp = data[i + j].re + data[i + j + k].re;
+				data[i + j + k].re = data[i + j].re - data[i + j + k].re;
+				data[i + j].re = temp;
+				temp = data[i + j].im + data[i + j + k].im;
+				data[i + j + k].im = data[i + j].im - data[i + j + k].im;
+				data[i + j].im = temp;
+			}
+		}
+		k *= 2;
+		check /= 2;
+	}
+}
